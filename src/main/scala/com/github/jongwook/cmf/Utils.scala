@@ -35,4 +35,7 @@ object Utils {
     }
   }
 
+  implicit class SafeArray[T](val self: Array[T]) extends AnyVal {
+    def get(idx: Int): Option[T] = if (self.length > idx) Option(self(idx)) else None
+  }
 }

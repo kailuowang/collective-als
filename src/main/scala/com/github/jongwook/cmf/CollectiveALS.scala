@@ -21,6 +21,7 @@ import scala.reflect.ClassTag
 import scala.util.Sorting
 import scala.util.hashing.byteswap64
 import scala.language.reflectiveCalls
+import Utils.SafeArray
 
 class CollectiveALS(entities: String*) extends Serializable {
 
@@ -1048,22 +1049,28 @@ object CollectiveALS {
                 val encoded = srcEncodedIndices(i)
                 val blockId = srcEncoder.blockId(encoded)
                 val localIndex = srcEncoder.localIndex(encoded)
-                val srcFactor = sortedSrcFactors(blockId)(localIndex)
-                val rating = ratings(i)
-                if (implicitPrefs) {
-                  // Extension to the original paper to handle b < 0. confidence is a function of |b|
-                  // instead so that it is never negative. c1 is confidence - 1.0.
-                  val c1 = alpha * math.abs(rating)
-                  // For rating <= 0, the corresponding preference is 0. So the term below is only added
-                  // for rating > 0. Because YtY is already added, we need to adjust the scaling here.
-                  if (rating > 0) {
+
+                for {
+                  block <- sortedSrcFactors.get(blockId)
+                  srcFactor <- block.get(localIndex)
+                } yield {
+                  val rating = ratings(i)
+                  if (implicitPrefs) {
+                    // Extension to the original paper to handle b < 0. confidence is a function of |b|
+                    // instead so that it is never negative. c1 is confidence - 1.0.
+                    val c1 = alpha * math.abs(rating)
+                    // For rating <= 0, the corresponding preference is 0. So the term below is only added
+                    // for rating > 0. Because YtY is already added, we need to adjust the scaling here.
+                    if (rating > 0) {
+                      numExplicits += 1
+                      ls.add(srcFactor, (c1 + 1.0) / c1, c1)
+                    }
+                  } else {
+                    ls.add(srcFactor, rating)
                     numExplicits += 1
-                    ls.add(srcFactor, (c1 + 1.0) / c1, c1)
-                  }
-                } else {
-                  ls.add(srcFactor, rating)
-                  numExplicits += 1
+                  }: Unit
                 }
+
                 i += 1
               }
               // Weight lambda by the number of explicit ratings based on the ALS-WR paper.
@@ -1073,6 +1080,7 @@ object CollectiveALS {
             }
             equations
         }
+
     }.reduce[RDD[(ID, (Int, NormalEquation))]] { (left, right) =>
       left.fullOuterJoin(right).mapValues {
         case (Some((leftExplicits, leftEquation)), Some((rightExplicits, rightEquation))) =>
