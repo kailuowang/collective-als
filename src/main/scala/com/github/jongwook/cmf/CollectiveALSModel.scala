@@ -8,20 +8,16 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{ DoubleType, FloatType, StructType }
 import org.apache.spark.sql.{ DataFrame, Dataset }
 
-class CollectiveALSModel(rank: Int, factors: DataFrame*) extends Serializable {
+class CollectiveALSModel(val rank: Int, factors: DataFrame*) extends Serializable {
 
   private val cols = new Array[String](factors.size)
   cols(0) = "user"
   cols(1) = "item"
 
-  def userCol: String = cols(0)
-  def itemCol: String = cols(1)
   def entityCol(index: Int): String = cols(index)
 
   var predictionCol: String = "prediction"
 
-  def setUserCol(value: String): this.type = { cols(0) = value; this }
-  def setItemCol(value: String): this.type = { cols(1) = value; this }
   def setEntityCol(index: Int, value: String): this.type = { cols(index) = value; this }
   def setEntityCols(values: Seq[String]): this.type = {
     require(values.length == factors.size, s"There should be exactly ${factors.size} columns")
@@ -29,14 +25,13 @@ class CollectiveALSModel(rank: Int, factors: DataFrame*) extends Serializable {
     this
   }
 
-  def factorMap: Map[String, DataFrame] = cols.toList.zip(factors.toList).toMap
+  def factorMap: List[(String, DataFrame)] = cols.toList.zip(factors.toList)
 
   def setPredictionCol(value: String): this.type = { predictionCol = value; this }
 
   val checkedCast = udf { (n: Double) =>
     if (n > Int.MaxValue || n < Int.MinValue) {
-      throw new IllegalArgumentException(s"ALS only supports values in Integer range for columns " +
-        s"$userCol and $itemCol. Value $n was out of Integer range.")
+      throw new IllegalArgumentException(s"ALS only supports values in Integer range for id columns ")
     } else {
       n.toInt
     }
@@ -50,7 +45,10 @@ class CollectiveALSModel(rank: Int, factors: DataFrame*) extends Serializable {
       }
     }
 
-    transformSchema(dataset.schema)
+    SchemaUtils.checkNumericType(dataset.schema, leftEntity)
+    SchemaUtils.checkNumericType(dataset.schema, rightEntity)
+    SchemaUtils.appendColumn(dataset.schema, predictionCol, FloatType)
+
     // Register a UDF for DataFrame, and then
     // create a new column named map(predictionCol) by running the predict UDF.
     val predict = udf { (userFeatures: Seq[Float], itemFeatures: Seq[Float]) =>
@@ -73,13 +71,6 @@ class CollectiveALSModel(rank: Int, factors: DataFrame*) extends Serializable {
         dataset("*"),
         predict(leftFactors("features"), rightFactors("features")).as(predictionCol)
       )
-  }
-
-  def transformSchema(schema: StructType): StructType = {
-    // user and item will be cast to Int
-    SchemaUtils.checkNumericType(schema, userCol)
-    SchemaUtils.checkNumericType(schema, itemCol)
-    SchemaUtils.appendColumn(schema, predictionCol, FloatType)
   }
 
 }

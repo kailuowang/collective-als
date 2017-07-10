@@ -1,5 +1,6 @@
 package com.github.jongwook.cmf
 
+import java.time.LocalDateTime
 import java.{ util => ju }
 
 import com.github.fommil.netlib.BLAS.{ getInstance => blas }
@@ -413,6 +414,7 @@ object CollectiveALS {
     }: _*)
 
     for (iter <- 0 until maxIter) {
+      println(s"Training iteration ${iter + 1} started @ ${LocalDateTime.now}")
       for (entity <- 0 until numEntities) {
         val encoder = indexEncoders(entity)
         val srcOutBlockSeq = reverseGroupedInOutBlocks(entity).map {
